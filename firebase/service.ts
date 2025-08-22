@@ -48,6 +48,14 @@ export const getUserData = async (userId: number): Promise<GameState | null> => 
         if (!data.transactions) {
             data.transactions = [];
         }
+        // Ensure boosts exist for backward compatibility
+        if (!data.boosts) {
+            data.boosts = getInitialBoosts();
+        }
+        // Ensure cardData exists for backward compatibility
+        if (!data.cardData) {
+            data.cardData = generateNewCard();
+        }
         return data;
     }
     return null;

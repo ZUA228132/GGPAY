@@ -132,7 +132,8 @@ const TopPlayersView: React.FC<{
     players: Player[]; 
     leaderboardTab: 'gg' | 'boosts', 
     setLeaderboardTab: (tab: 'gg' | 'boosts') => void,
-}> = ({ players, leaderboardTab, setLeaderboardTab }) => {
+    isLoading: boolean,
+}> = ({ players, leaderboardTab, setLeaderboardTab, isLoading }) => {
   return (
     <div className="h-full flex flex-col">
       <div className="text-center mb-6">
@@ -143,25 +144,35 @@ const TopPlayersView: React.FC<{
         <button onClick={() => setLeaderboardTab('boosts')} className={`w-1/2 py-2 rounded-full font-bold transition-colors ${leaderboardTab === 'boosts' ? 'bg-[var(--primary-accent)] text-white' : ''}`}>Топ по Улучшениям</button>
       </div>
       <div className="flex-grow overflow-y-auto space-y-3 pr-2">
-        {players.map((player, index) => (
-          <div key={player.id} className={`flex items-center justify-between p-3 rounded-xl glass-panel ${player.isCurrentUser ? 'border-2 border-[var(--primary-accent)]' : ''}`}>
-            <div className="flex items-center space-x-3">
-              <span className={`text-xl font-bold font-orbitron w-8 text-center ${index < 3 ? 'text-[var(--secondary-accent)]' : 'text-gray-400'}`}>{index + 1}</span>
-              <span className="font-semibold text-lg">{player.name}</span>
+        {isLoading ? (
+             <div className="flex-grow flex items-center justify-center text-center text-[var(--text-muted)]">
+                <p>Загрузка лидеров...</p>
             </div>
-            <div className='flex items-center gap-4'>
-                <div className='text-right'>
-                    <span className="font-bold text-lg text-glow-primary font-orbitron">
-                        {leaderboardTab === 'gg' 
-                            ? formatLargeNumber(player.balance)
-                            : `Lvl ${player.totalBoostLevel}`
-                        }
-                    </span>
-                    {leaderboardTab === 'boosts' && <div className="text-xs text-[var(--text-muted)]">{formatLargeNumber(player.balance)} GG</div>}
+        ) : players.length > 0 ? (
+            players.map((player, index) => (
+              <div key={player.id} className={`flex items-center justify-between p-3 rounded-xl glass-panel ${player.isCurrentUser ? 'border-2 border-[var(--primary-accent)]' : ''}`}>
+                <div className="flex items-center space-x-3">
+                  <span className={`text-xl font-bold font-orbitron w-8 text-center ${index < 3 ? 'text-[var(--secondary-accent)]' : 'text-gray-400'}`}>{index + 1}</span>
+                  <span className="font-semibold text-lg">{player.name}</span>
                 </div>
+                <div className='flex items-center gap-4'>
+                    <div className='text-right'>
+                        <span className="font-bold text-lg text-glow-primary font-orbitron">
+                            {leaderboardTab === 'gg' 
+                                ? formatLargeNumber(player.balance)
+                                : `Lvl ${player.totalBoostLevel}`
+                            }
+                        </span>
+                        {leaderboardTab === 'boosts' && <div className="text-xs text-[var(--text-muted)]">{formatLargeNumber(player.balance)} GG</div>}
+                    </div>
+                </div>
+              </div>
+            ))
+        ) : (
+             <div className="flex-grow flex items-center justify-center text-center text-[var(--text-muted)]">
+                <p>Пока нет игроков в рейтинге.</p>
             </div>
-          </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -228,6 +239,7 @@ const App: React.FC = () => {
     const [currentView, setCurrentView] = useState<View>('home');
     const [floatingNumbers, setFloatingNumbers] = useState<FloatingNumber[]>([]);
     const [topPlayers, setTopPlayers] = useState<Player[]>([]);
+    const [isTopPlayersLoading, setIsTopPlayersLoading] = useState(false);
 
     // Admin states
     const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
@@ -260,7 +272,7 @@ const App: React.FC = () => {
                 let currentUser: TelegramUser;
                 const tg = window.Telegram?.WebApp;
 
-                if (tg && tg.initDataUnsafe?.user) {
+                if (tg && tg.initDataUnsafe?.user && tg.initDataUnsafe.user.id) {
                     // Production mode: We are inside Telegram
                     tg.ready();
                     tg.expand();
@@ -311,19 +323,37 @@ const App: React.FC = () => {
                 }
             } catch (err: any) {
                 console.error("Initialization failed:", err);
-                setError(err.message || "An unexpected error occurred during loading.");
+                setError("Could not connect to database. Please check your connection and Firebase rules.");
             } finally {
                 setLoading(false);
             }
         };
 
-        initializeApp();
+        const tg = window.Telegram?.WebApp;
+        if (tg) {
+            tg.ready();
+            initializeApp();
+        } else {
+            initializeApp();
+        }
     }, []); // Empty dependency array, so it runs only once
 
     // Fetch top players
     useEffect(() => {
         if (!telegramUser || currentView !== 'top') return;
-        fetchTopPlayers(telegramUser.id, leaderboardTab).then(setTopPlayers);
+        const fetch = async () => {
+            setIsTopPlayersLoading(true);
+            try {
+                const players = await fetchTopPlayers(telegramUser.id, leaderboardTab);
+                setTopPlayers(players);
+            } catch (e) {
+                console.error("Failed to fetch top players:", e);
+                setError("Could not load leaderboard. Please check Firebase rules.");
+            } finally {
+                setIsTopPlayersLoading(false);
+            }
+        };
+        fetch();
     }, [telegramUser, leaderboardTab, currentView]); 
 
     // Game loop for energy and printer
@@ -349,7 +379,25 @@ const App: React.FC = () => {
         if (gameState && telegramUser) {
             saveUserData(telegramUser.id, { ...gameState, lastSeen: Date.now() });
         }
-    }, [gameState], 2000);
+    }, [gameState], 500);
+
+    // Guaranteed save on exit/hide
+    const gameStateRef = useRef(gameState);
+    useEffect(() => {
+        gameStateRef.current = gameState;
+    }, [gameState]);
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden' && telegramUser && gameStateRef.current) {
+                saveUserData(telegramUser.id, { ...gameStateRef.current, lastSeen: Date.now() });
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [telegramUser]);
 
 
     const handleTap = useCallback((x: number, y: number) => {
@@ -434,10 +482,12 @@ const App: React.FC = () => {
             // Update state based on successful transaction from Firebase
             setGameState(prev => {
                 if (!prev) return prev;
+                // Add new transaction to the start of the array
+                const newTransactions = [result.newTransaction, ...(prev.transactions || [])];
                 return { 
                     ...prev,
                     balance: prev.balance - amount,
-                    transactions: [result.newTransaction, ...prev.transactions]
+                    transactions: newTransactions
                 };
             });
             
@@ -517,7 +567,7 @@ const App: React.FC = () => {
             case 'card':
                  return <VirtualCard cardData={gameState.cardData} user={telegramUser} balance={gameState.balance} onTransfer={handleTransfer} />;
             case 'top':
-                return <TopPlayersView players={topPlayers} leaderboardTab={leaderboardTab} setLeaderboardTab={setLeaderboardTab} />;
+                return <TopPlayersView players={topPlayers} leaderboardTab={leaderboardTab} setLeaderboardTab={setLeaderboardTab} isLoading={isTopPlayersLoading} />;
             case 'profile':
                 return <ProfileView user={telegramUser} balance={gameState.balance} onShowHistory={() => setIsHistoryModalOpen(true)} />;
             default:
@@ -535,7 +585,9 @@ const App: React.FC = () => {
                 {renderContent()}
             </main>
             
-            <BottomNav currentView={currentView} setCurrentView={setCurrentView} />
+            <div style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+                <BottomNav currentView={currentView} setCurrentView={setCurrentView} />
+            </div>
         </div>
     );
 };
