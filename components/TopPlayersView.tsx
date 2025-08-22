@@ -21,16 +21,16 @@ const TopPlayersView: React.FC<TopPlayersViewProps> = ({ players, leaderboardTab
             <div className="text-center mb-4">
                 <h2 className="text-3xl font-bold text-glow-primary font-orbitron">Топ Игроков</h2>
             </div>
-            <div className="flex justify-center mb-4 p-1 rounded-full glass-panel max-w-sm mx-auto">
+            <div className="flex justify-center mb-4 p-1 rounded-full glass-panel max-w-sm mx-auto w-full gap-1">
                 <button
                     onClick={() => setLeaderboardTab('gg')}
-                    className={`w-1/2 py-2 rounded-full font-bold transition-colors ${leaderboardTab === 'gg' ? 'bg-[var(--primary-accent)]' : ''}`}
+                    className={`flex-1 py-2 rounded-full font-bold transition-colors ${leaderboardTab === 'gg' ? 'bg-[var(--primary-accent)]' : 'bg-transparent'}`}
                 >
                     GG
                 </button>
                 <button
                     onClick={() => setLeaderboardTab('boosts')}
-                    className={`w-1/2 py-2 rounded-full font-bold transition-colors ${leaderboardTab === 'boosts' ? 'bg-[var(--primary-accent)]' : ''}`}
+                    className={`flex-1 py-2 rounded-full font-bold transition-colors ${leaderboardTab === 'boosts' ? 'bg-[var(--primary-accent)]' : 'bg-transparent'}`}
                 >
                     Бусты
                 </button>

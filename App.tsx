@@ -138,18 +138,18 @@ const App: React.FC = () => {
     useEffect(() => {
         const initializeApp = async () => {
             try {
-                let currentUser: TelegramUser;
                 const tg = window.Telegram?.WebApp;
 
-                if (tg && tg.initDataUnsafe?.user?.id) {
-                    await new Promise(resolve => tg.ready(resolve));
-                    tg.expand();
-                    const user = tg.initDataUnsafe.user;
-                    currentUser = { id: user.id, firstName: user.first_name, lastName: user.last_name, username: user.username, photoUrl: user.photo_url };
-                } else {
-                    console.warn("Telegram environment not found. Running in dev mode.");
-                    currentUser = { id: ADMIN_USER_ID, firstName: "Admin", lastName: "Dev", username: "admin_dev", photoUrl: '' };
+                if (!tg || !tg.initDataUnsafe?.user?.id) {
+                    setError("Это приложение можно запустить только внутри Telegram.");
+                    setLoading(false);
+                    return;
                 }
+                
+                tg.expand();
+                const user = tg.initDataUnsafe.user;
+                const currentUser: TelegramUser = { id: user.id, firstName: user.first_name, lastName: user.last_name, username: user.username, photoUrl: user.photo_url };
+                
                 setTelegramUser(currentUser);
 
                 const [data, config, notification] = await Promise.all([
