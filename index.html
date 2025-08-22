@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>GG PAY</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -27,6 +27,8 @@
       }
 
       body {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
         font-family: 'Rajdhani', sans-serif;
         color: var(--text-color);
         background-color: var(--bg-color);
@@ -110,6 +112,7 @@
         -ms-user-select: none;
         user-select: none;
         cursor: pointer;
+        touch-action: none;
       }
     </style>
   <script type="importmap">
@@ -117,7 +120,10 @@
   "imports": {
     "react": "https://esm.sh/react@^19.1.1",
     "react/": "https://esm.sh/react@^19.1.1/",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.1/"
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/database": "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js",
+    "firebase/": "https://esm.sh/firebase@^12.1.0/"
   }
 }
 </script>

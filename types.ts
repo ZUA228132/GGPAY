@@ -58,4 +58,14 @@ export interface CardData {
     expiryDate: string;
 }
 
-export type View = 'home' | 'boosts' | 'top' | 'transfer' | 'profile' | 'card';
+export interface GameState {
+    balance: number;
+    energy: number;
+    boosts: Record<BoostType, { level: number }>;
+    lastSeen: number;
+    transactions: Transaction[];
+    cardData: CardData;
+}
+
+
+export type View = 'home' | 'boosts' | 'top' | 'profile' | 'card';
