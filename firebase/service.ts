@@ -1,14 +1,14 @@
 import { db } from './config';
-import { ref, get, set, runTransaction, query, orderByChild, limitToLast, child } from "firebase/database";
-import { GameState, TelegramUser, BoostType, Transaction, Player } from '../types';
-import { BOOSTS_CONFIG, INITIAL_ENERGY } from '../constants';
+import { ref, get, set, runTransaction, query, orderByChild, limitToLast, child, serverTimestamp, update } from "firebase/database";
+import { GameState, TelegramUser, BoostId, Transaction, Player, BoostConfig, VerificationRequest, GlobalNotification, VerificationStatus } from '../types';
+import { INITIAL_ENERGY, INITIAL_BOOSTS_CONFIG } from '../constants';
 
-const getInitialBoosts = () => {
+const getInitialBoosts = (config: BoostConfig[]) => {
     const boosts: any = {};
-    BOOSTS_CONFIG.forEach(b => {
+    config.forEach(b => {
         boosts[b.id] = { level: 0 };
     });
-    return boosts as Record<BoostType, { level: number }>;
+    return boosts as Record<BoostId, { level: number }>;
 };
 
 const generateNewCard = () => {
@@ -18,14 +18,17 @@ const generateNewCard = () => {
     return { cardNumber: newCardNumber, expiryDate: `${expiryMonth}/${expiryYear}` };
 };
 
-export const createUserData = async (user: TelegramUser): Promise<GameState> => {
+export const createUserData = async (user: TelegramUser, boostsConfig: BoostConfig[]): Promise<GameState> => {
     const newUserState: GameState = {
         balance: 0,
         energy: INITIAL_ENERGY,
-        boosts: getInitialBoosts(),
+        boosts: getInitialBoosts(boostsConfig),
         lastSeen: Date.now(),
         transactions: [],
         cardData: generateNewCard(),
+        isBanned: false,
+        isVerified: false,
+        verificationStatus: 'none',
     };
     const userRef = ref(db, `users/${user.id}`);
     const profileRef = ref(db, `profiles/${user.id}`);
@@ -33,7 +36,8 @@ export const createUserData = async (user: TelegramUser): Promise<GameState> => 
     await set(userRef, newUserState);
     await set(profileRef, {
         name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || `User ${user.id}`,
-        username: user.username || ''
+        username: user.username || '',
+        isVerified: false
     });
 
     return newUserState;
@@ -44,18 +48,13 @@ export const getUserData = async (userId: number): Promise<GameState | null> => 
     const snapshot = await get(userRef);
     if (snapshot.exists()) {
         const data = snapshot.val();
-        // Ensure transactions is an array
-        if (!data.transactions) {
-            data.transactions = [];
-        }
-        // Ensure boosts exist for backward compatibility
-        if (!data.boosts) {
-            data.boosts = getInitialBoosts();
-        }
-        // Ensure cardData exists for backward compatibility
-        if (!data.cardData) {
-            data.cardData = generateNewCard();
-        }
+        // Backward compatibility checks
+        if (!data.transactions) data.transactions = [];
+        if (!data.cardData) data.cardData = generateNewCard();
+        if (typeof data.isBanned === 'undefined') data.isBanned = false;
+        if (typeof data.isVerified === 'undefined') data.isVerified = false;
+        if (!data.verificationStatus) data.verificationStatus = 'none';
+
         return data;
     }
     return null;
@@ -78,27 +77,17 @@ export const performTransferTransaction = async (
     const recipientRef = ref(db, `users/${recipientId}`);
 
     const recipientSnapshot = await get(recipientRef);
-    if (!recipientSnapshot.exists()) {
-        throw new Error("Получатель не найден.");
-    }
+    if (!recipientSnapshot.exists()) throw new Error("Получатель не найден.");
+
+    const txId = `txn_${Date.now()}`;
+    const timestamp = Date.now();
 
     await runTransaction(senderRef, (currentUserData: GameState) => {
         if (currentUserData) {
-            if (currentUserData.balance < amount) {
-                // Not enough balance, abort transaction
-                return; // Abort
-            }
+            if (currentUserData.balance < amount) return; // Abort
             currentUserData.balance -= amount;
-            if (!currentUserData.transactions) {
-                currentUserData.transactions = [];
-            }
-            currentUserData.transactions.unshift({
-                id: `txn_${Date.now()}`,
-                type: 'sent',
-                amount: amount,
-                counterpartyId: recipientId,
-                timestamp: Date.now(),
-            });
+            if (!currentUserData.transactions) currentUserData.transactions = [];
+            currentUserData.transactions.unshift({ id: txId, type: 'sent', amount, counterpartyId: recipientId, timestamp });
         }
         return currentUserData;
     });
@@ -106,38 +95,19 @@ export const performTransferTransaction = async (
     await runTransaction(recipientRef, (currentUserData: GameState) => {
         if (currentUserData) {
             currentUserData.balance += amount;
-             if (!currentUserData.transactions) {
-                currentUserData.transactions = [];
-            }
-            currentUserData.transactions.unshift({
-                id: `txn_${Date.now()}`,
-                type: 'received',
-                amount: amount,
-                counterpartyId: senderId,
-                timestamp: Date.now(),
-            });
+             if (!currentUserData.transactions) currentUserData.transactions = [];
+            currentUserData.transactions.unshift({ id: txId, type: 'received', amount, counterpartyId: senderId, timestamp });
         }
         return currentUserData;
     });
 
-    return {
-        success: true,
-        newTransaction: {
-            id: `txn_${Date.now()}`,
-            type: 'sent',
-            amount,
-            counterpartyId: recipientId,
-            timestamp: Date.now(),
-        },
-    };
+    return { success: true, newTransaction: { id: txId, type: 'sent', amount, counterpartyId: recipientId, timestamp }};
 };
 
 export const fetchTopPlayers = async (currentUserId: number, sortBy: 'gg' | 'boosts'): Promise<Player[]> => {
     const usersRef = ref(db, 'users');
     const profilesRef = ref(db, 'profiles');
     
-    // For simplicity and performance, we'll fetch a limited number of top players.
-    // Real-world scenarios might require more complex queries or backend processing.
     const topQuery = query(usersRef, orderByChild('balance'), limitToLast(50));
     
     const [usersSnapshot, profilesSnapshot] = await Promise.all([get(topQuery), get(profilesRef)]);
@@ -157,6 +127,7 @@ export const fetchTopPlayers = async (currentUserId: number, sortBy: 'gg' | 'boo
             boosts: gameState.boosts as any,
             totalBoostLevel,
             isCurrentUser: parseInt(id, 10) === currentUserId,
+            isVerified: profilesData[id]?.isVerified || false,
         };
     });
 
@@ -165,6 +136,81 @@ export const fetchTopPlayers = async (currentUserId: number, sortBy: 'gg' | 'boo
     } else {
         players.sort((a, b) => b.balance - a.balance);
     }
-
     return players;
+};
+
+// --- Admin Functions ---
+
+export const setBanStatus = async (userId: number, isBanned: boolean) => {
+    const userRef = ref(db, `users/${userId}/isBanned`);
+    await set(userRef, isBanned);
+};
+
+export const addBalance = async (userId: number, amount: number) => {
+    const userRef = ref(db, `users/${userId}/balance`);
+    await runTransaction(userRef, (currentBalance) => (currentBalance || 0) + amount);
+};
+
+export const getBoostsConfig = async (): Promise<BoostConfig[]> => {
+    const configRef = ref(db, 'config/boosts');
+    const snapshot = await get(configRef);
+    if (snapshot.exists()) {
+        return Object.values(snapshot.val());
+    } else {
+        await set(configRef, INITIAL_BOOSTS_CONFIG.reduce((acc, b) => ({ ...acc, [b.id]: b }), {}));
+        return INITIAL_BOOSTS_CONFIG;
+    }
+};
+
+export const updateBoostsConfig = async (newConfig: BoostConfig[]) => {
+    const configRef = ref(db, 'config/boosts');
+    await set(configRef, newConfig.reduce((acc, b) => ({ ...acc, [b.id]: b }), {}));
+};
+
+export const getVerificationRequests = async (): Promise<VerificationRequest[]> => {
+    const requestsRef = ref(db, 'admin/verificationRequests');
+    const snapshot = await get(requestsRef);
+    return snapshot.exists() ? Object.values(snapshot.val()) : [];
+};
+
+export const updateVerificationStatus = async (userId: number, status: VerificationStatus) => {
+    const userUpdates: any = {};
+    userUpdates[`users/${userId}/isVerified`] = status === 'verified';
+    userUpdates[`users/${userId}/verificationStatus`] = status;
+    userUpdates[`profiles/${userId}/isVerified`] = status === 'verified';
+    await update(ref(db), userUpdates);
+
+    // Remove request from queue
+    const requestRef = ref(db, `admin/verificationRequests/${userId}`);
+    await set(requestRef, null);
+};
+
+export const requestVerification = async (userId: number, userName: string) => {
+    const requestRef = ref(db, `admin/verificationRequests/${userId}`);
+    await set(requestRef, { userId, userName, timestamp: serverTimestamp() });
+    
+    const userStatusRef = ref(db, `users/${userId}/verificationStatus`);
+    await set(userStatusRef, 'pending');
+};
+
+export const sendGlobalNotification = async (message: string) => {
+    const id = `notif_${Date.now()}`;
+    const notificationRef = ref(db, `admin/notifications/${id}`);
+    await set(notificationRef, { id, message, timestamp: serverTimestamp() });
+};
+
+export const getLatestNotification = async (lastSeenId: string | null): Promise<GlobalNotification | null> => {
+    const notificationsRef = query(ref(db, 'admin/notifications'), limitToLast(1));
+    const snapshot = await get(notificationsRef);
+    if (snapshot.exists()) {
+        const [latestNotification] = Object.values(snapshot.val()) as GlobalNotification[];
+        if (latestNotification && latestNotification.id !== lastSeenId) {
+            return latestNotification;
+        }
+    }
+    return null;
+};
+
+export const markNotificationAsSeen = (userId: number, notificationId: string) => {
+    localStorage.setItem(`seen_notification_${userId}`, notificationId);
 };

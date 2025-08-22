@@ -36,7 +36,7 @@ const VirtualCard: React.FC<VirtualCardProps> = ({ cardData, user, balance, onTr
         const pixels = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
         let transparent = 0;
         for (let i = 0, n = pixels.data.length; i < n; i += 4) {
-            if (pixels.data[i + 3] < 128) { // Check alpha channel
+            if (pixels.data[i + 3] < 128) {
                 transparent++;
             }
         }
@@ -131,6 +131,7 @@ const VirtualCard: React.FC<VirtualCardProps> = ({ cardData, user, balance, onTr
             setTransferStatus({ type: 'success', message: result.message });
             setRecipientId('');
             setAmount('');
+            setTimeout(() => setTransferStatus(null), 3000); // Clear message after a while
         } else {
             setTransferStatus({ type: 'error', message: result.message });
         }

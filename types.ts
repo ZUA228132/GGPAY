@@ -18,22 +18,31 @@ export enum BoostType {
   GG_PRINTER = 'GG_PRINTER'
 }
 
-export interface Boost {
-  id: BoostType;
+export type BoostId = BoostType | string;
+
+export interface BoostConfig {
+  id: BoostId;
   name: string;
   description: string;
-  level: number;
   maxLevel: number;
-  icon: ReactNode;
-  getCost: (level: number) => number;
+  iconName: string; // To allow dynamic icon lookup
+  costFormula: string; // Stored as a string formula like '10 * 2.5 ** level'
 }
+
+export interface Boost extends Omit<BoostConfig, 'costFormula'> {
+    level: number;
+    icon: ReactNode;
+    getCost: (level: number) => number;
+}
+
 
 export interface Player {
     id: number;
     name: string;
     balance: number;
     isCurrentUser?: boolean;
-    boosts: { [key in BoostType]?: { level: number } };
+    isVerified?: boolean;
+    boosts: { [key in BoostId]?: { level: number } };
     totalBoostLevel?: number;
 }
 
@@ -43,6 +52,7 @@ export interface TelegramUser {
     lastName?: string;
     username?: string;
     photoUrl?: string;
+    isVerified?: boolean;
 }
 
 export interface Transaction {
@@ -58,14 +68,31 @@ export interface CardData {
     expiryDate: string;
 }
 
+export type VerificationStatus = 'none' | 'pending' | 'verified' | 'rejected';
+
 export interface GameState {
     balance: number;
     energy: number;
-    boosts: Record<BoostType, { level: number }>;
+    boosts: Record<BoostId, { level: number }>;
     lastSeen: number;
     transactions: Transaction[];
     cardData: CardData;
+    isBanned: boolean;
+    isVerified: boolean;
+    verificationStatus: VerificationStatus;
+}
+
+export interface VerificationRequest {
+    userId: number;
+    userName: string;
+    timestamp: number;
+}
+
+export interface GlobalNotification {
+    id: string;
+    message: string;
+    timestamp: number;
 }
 
 
-export type View = 'home' | 'boosts' | 'top' | 'profile' | 'card';
+export type View = 'home' | 'boosts' | 'top' | 'profile' | 'card' | 'admin';

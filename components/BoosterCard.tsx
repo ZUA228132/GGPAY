@@ -1,11 +1,11 @@
 import React from 'react';
-import { Boost, BoostType } from '../types';
+import { Boost, BoostId } from '../types';
 import { formatLargeNumber } from '../utils';
 
 interface BoosterCardProps {
     boost: Boost;
     balance: number;
-    onBuy: (boostId: BoostType) => void;
+    onBuy: (boostId: BoostId) => void;
 }
 
 const BoosterCard: React.FC<BoosterCardProps> = ({ boost, balance, onBuy }) => {
