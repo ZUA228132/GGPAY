@@ -257,26 +257,33 @@ const App: React.FC = () => {
     useEffect(() => {
         const initializeApp = async () => {
             try {
+                let currentUser: TelegramUser;
                 const tg = window.Telegram?.WebApp;
-                if (!tg) {
-                    throw new Error("Telegram Web App environment not found.");
+
+                if (tg && tg.initDataUnsafe?.user) {
+                    // Production mode: We are inside Telegram
+                    tg.ready();
+                    tg.expand();
+                    const user = tg.initDataUnsafe.user;
+                    currentUser = {
+                        id: user.id,
+                        firstName: user.first_name,
+                        lastName: user.last_name,
+                        username: user.username,
+                        photoUrl: user.photo_url,
+                    };
+                } else {
+                    // Developer mode: We are not inside Telegram
+                    console.warn("Telegram environment not found. Running in developer mode.");
+                    currentUser = {
+                        id: 1337, // A mock user ID
+                        firstName: "Dev",
+                        lastName: "User",
+                        username: "devuser",
+                        photoUrl: '',
+                    };
                 }
 
-                tg.ready();
-                tg.expand();
-
-                const user = tg.initDataUnsafe?.user;
-                if (!user || !user.id) {
-                    throw new Error("Could not retrieve Telegram user data.");
-                }
-
-                const currentUser: TelegramUser = {
-                    id: user.id,
-                    firstName: user.first_name,
-                    lastName: user.last_name,
-                    username: user.username,
-                    photoUrl: user.photo_url,
-                };
                 setTelegramUser(currentUser);
 
                 let data = await getUserData(currentUser.id);
