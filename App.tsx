@@ -222,6 +222,7 @@ const useDebouncedEffect = (effect: () => void, deps: React.DependencyList, dela
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
     
     const [currentView, setCurrentView] = useState<View>('home');
@@ -254,13 +255,21 @@ const App: React.FC = () => {
 
     // Load user and game data from Firebase
     useEffect(() => {
-        const tg = window.Telegram?.WebApp;
-        if(tg) {
-            tg.ready();
-            tg.expand();
-            const user = tg.initDataUnsafe?.user;
-            
-            if (user && user.id) {
+        const initializeApp = async () => {
+            try {
+                const tg = window.Telegram?.WebApp;
+                if (!tg) {
+                    throw new Error("Telegram Web App environment not found.");
+                }
+
+                tg.ready();
+                tg.expand();
+
+                const user = tg.initDataUnsafe?.user;
+                if (!user || !user.id) {
+                    throw new Error("Could not retrieve Telegram user data.");
+                }
+
                 const currentUser: TelegramUser = {
                     id: user.id,
                     firstName: user.first_name,
@@ -269,44 +278,46 @@ const App: React.FC = () => {
                     photoUrl: user.photo_url,
                 };
                 setTelegramUser(currentUser);
-                
-                getUserData(currentUser.id).then(data => {
-                    if (data) {
-                         const offlineTimeSec = Math.min((Date.now() - data.lastSeen) / 1000, BOT_OFFLINE_LIMIT_HOURS * 3600);
-                         const botLevel = data.boosts[BoostType.AUTO_TAP_BOT]?.level || 0;
-                         const botEarnings = botLevel > 0 ? offlineTimeSec * TAPS_PER_CLICK_BASE * botLevel : 0;
-                         const regenLevel = data.boosts[BoostType.RECHARGING_SPEED]?.level || 0;
-                         const currentEnergyRegenRate = INITIAL_ENERGY_REGEN_RATE + regenLevel;
-                         const energyLimitLevel = data.boosts[BoostType.ENERGY_LIMIT]?.level || 0;
-                         const currentMaxEnergy = INITIAL_MAX_ENERGY + (energyLimitLevel * 500);
-                         const offlineEnergyGain = Math.floor(offlineTimeSec * currentEnergyRegenRate);
 
-                         setGameState({
-                             ...data,
-                             balance: data.balance + botEarnings,
-                             energy: Math.min(data.energy + offlineEnergyGain, currentMaxEnergy),
-                         });
+                let data = await getUserData(currentUser.id);
 
-                    } else {
-                        createUserData(currentUser).then(newUserData => {
-                            setGameState(newUserData);
-                        });
-                    }
-                    setLoading(false);
-                });
-            } else {
-                // Handle case where Telegram user is not available
-                console.error("Telegram user data not found.");
+                if (data) {
+                    // Calculation logic for offline earnings
+                    const offlineTimeSec = Math.min((Date.now() - data.lastSeen) / 1000, BOT_OFFLINE_LIMIT_HOURS * 3600);
+                    const botLevel = data.boosts[BoostType.AUTO_TAP_BOT]?.level || 0;
+                    const botEarnings = botLevel > 0 ? offlineTimeSec * TAPS_PER_CLICK_BASE * botLevel : 0;
+                    const regenLevel = data.boosts[BoostType.RECHARGING_SPEED]?.level || 0;
+                    const currentEnergyRegenRate = INITIAL_ENERGY_REGEN_RATE + regenLevel;
+                    const energyLimitLevel = data.boosts[BoostType.ENERGY_LIMIT]?.level || 0;
+                    const currentMaxEnergy = INITIAL_MAX_ENERGY + (energyLimitLevel * 500);
+                    const offlineEnergyGain = Math.floor(offlineTimeSec * currentEnergyRegenRate);
+
+                    setGameState({
+                        ...data,
+                        balance: data.balance + botEarnings,
+                        energy: Math.min(data.energy + offlineEnergyGain, currentMaxEnergy),
+                    });
+                } else {
+                    // User doesn't exist, create a new one
+                    const newUserData = await createUserData(currentUser);
+                    setGameState(newUserData);
+                }
+            } catch (err: any) {
+                console.error("Initialization failed:", err);
+                setError(err.message || "An unexpected error occurred during loading.");
+            } finally {
                 setLoading(false);
             }
-        }
-    }, []);
+        };
+
+        initializeApp();
+    }, []); // Empty dependency array, so it runs only once
 
     // Fetch top players
     useEffect(() => {
-        if (!telegramUser) return;
+        if (!telegramUser || currentView !== 'top') return;
         fetchTopPlayers(telegramUser.id, leaderboardTab).then(setTopPlayers);
-    }, [telegramUser, leaderboardTab, gameState?.balance]); // re-fetch when balance changes to update own score
+    }, [telegramUser, leaderboardTab, currentView]); 
 
     // Game loop for energy and printer
     useEffect(() => {
@@ -430,10 +441,32 @@ const App: React.FC = () => {
         }
     };
 
-    if (loading || !gameState) {
+    if (loading) {
         return (
             <div className="h-screen w-screen flex items-center justify-center">
                 <div className="text-2xl font-orbitron">Загрузка GG PAY...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center text-center p-4">
+                <div>
+                    <h2 className="text-2xl font-orbitron text-red-500">Ошибка Загрузки</h2>
+                    <p className="text-[var(--text-muted)] mt-2">{error}</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!gameState) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center text-center p-4">
+                 <div>
+                    <h2 className="text-2xl font-orbitron text-red-500">Не удалось загрузить данные</h2>
+                    <p className="text-[var(--text-muted)] mt-2">Пожалуйста, попробуйте перезапустить приложение.</p>
+                </div>
             </div>
         );
     }
