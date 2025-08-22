@@ -11,7 +11,7 @@ const TransferAnimation: React.FC<TransferAnimationProps> = ({ cardData, user })
     
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 transfer-animation-overlay">
-            <div className="w-full max-w-sm aspect-[1.586] rounded-2xl p-6 flex flex-col justify-between text-white shadow-2xl relative virtual-card transfer-animation-card">
+            <div className="w-full max-w-sm aspect-[1.586] rounded-2xl p-6 flex flex-col justify-between text-white shadow-2xl relative virtual-card transfer-animation-card" style={{background: 'linear-gradient(45deg, #2c3e50, #4a6da7)'}}>
                 {/* Card content duplicated for animation */}
                 <div className="flex justify-between items-start">
                     <h2 className="text-2xl font-bold font-orbitron">GG PAY</h2>

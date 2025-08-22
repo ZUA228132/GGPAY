@@ -42,13 +42,16 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, transactio
                                         {tx.type === 'sent' ? <SentIcon /> : <ReceivedIcon />}
                                     </div>
                                     <div>
-                                        <p className="font-bold">
-                                            {tx.type === 'sent' ? 'Перевод для' : 'Получено от'} ID: {tx.counterpartyId}
+                                        <p className="font-bold text-sm">
+                                            {tx.type === 'sent' ? 'Перевод для' : 'Получено от'} {tx.counterpartyName || `ID: ${tx.counterpartyId}`}
                                         </p>
-                                        <p className="text-sm text-[var(--text-muted)]">{formatTimeAgo(tx.timestamp)}</p>
+                                        <p className="text-xs text-[var(--text-muted)] font-mono">
+                                            Карта: ...{tx.recipientCardNumber.slice(-4)}
+                                        </p>
+                                        <p className="text-xs text-[var(--text-muted)]">{formatTimeAgo(tx.timestamp)}</p>
                                     </div>
                                 </div>
-                                <div className={`font-bold font-orbitron ${tx.type === 'sent' ? 'text-red-400' : 'text-green-400'}`}>
+                                <div className={`font-bold font-orbitron text-sm ${tx.type === 'sent' ? 'text-red-400' : 'text-green-400'}`}>
                                     {tx.type === 'sent' ? '-' : '+'} {formatLargeNumber(tx.amount)} GG
                                 </div>
                             </div>

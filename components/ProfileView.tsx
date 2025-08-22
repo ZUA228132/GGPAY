@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TelegramUser, GameState } from '../types';
 import { formatLargeNumber } from '../utils';
+import { VERIFICATION_COST } from '../constants';
 
 interface ProfileViewProps {
     user: TelegramUser | null;
     gameState: GameState;
+    totalBalance: number;
     onShowHistory: () => void;
     onVerificationRequest: () => void;
 }
@@ -15,16 +17,30 @@ const VerifiedBadge = () => (
     </span>
 );
 
-const ProfileView: React.FC<ProfileViewProps> = ({ user, gameState, onShowHistory, onVerificationRequest }) => {
+const CopyIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7 9a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9z" /><path d="M5 3a2 2 0 00-2 2v6a2 2 0 002 2V5h6a2 2 0 00-2-2H5z" /></svg>);
+const CheckIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>);
+
+
+const ProfileView: React.FC<ProfileViewProps> = ({ user, gameState, totalBalance, onShowHistory, onVerificationRequest }) => {
+    const [copied, setCopied] = useState(false);
+
     if (!user) {
         return <div className="h-full flex items-center justify-center text-xl">Загрузка профиля...</div>;
     }
 
+    const handleCopyId = () => {
+        navigator.clipboard.writeText(user.id.toString());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const canAffordVerification = totalBalance >= VERIFICATION_COST;
+    
     const verificationButtonText = () => {
         switch (gameState.verificationStatus) {
             case 'none':
             case 'rejected':
-                return 'Запросить верификацию';
+                return `Запросить (${formatLargeNumber(VERIFICATION_COST)} GG)`;
             case 'pending':
                 return 'Запрос на рассмотрении';
             case 'verified':
@@ -52,12 +68,17 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, gameState, onShowHistor
             <div className="glass-panel p-4 mt-6 w-full max-w-sm flex flex-col space-y-4">
                 <div className='text-left'>
                     <p className="text-sm text-[var(--text-muted)]">ВАШ TELEGRAM ID</p>
-                    <p className="text-xl font-bold font-orbitron text-white">{user.id}</p>
+                    <div className="flex items-center justify-between">
+                        <p className="text-xl font-bold font-orbitron text-white">{user.id}</p>
+                        <button onClick={handleCopyId} className="text-gray-300 hover:text-white transition-colors">
+                            {copied ? <CheckIcon /> : <CopyIcon />}
+                        </button>
+                    </div>
                 </div>
                 <div className="h-px bg-[var(--glass-border)]"></div>
                 <div className='text-left'>
-                    <p className="text-sm text-[var(--text-muted)]">БАЛАНС</p>
-                    <p className="text-3xl font-bold font-orbitron text-glow-primary">{formatLargeNumber(gameState.balance)} GG</p>
+                    <p className="text-sm text-[var(--text-muted)]">ОБЩИЙ БАЛАНС</p>
+                    <p className="text-3xl font-bold font-orbitron text-glow-primary">{formatLargeNumber(totalBalance)} GG</p>
                 </div>
             </div>
              <button onClick={onShowHistory} className="w-full max-w-sm p-3 mt-2 rounded-xl font-bold glass-button">
@@ -65,11 +86,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, gameState, onShowHistor
             </button>
             <button 
                 onClick={onVerificationRequest}
-                disabled={gameState.verificationStatus === 'pending' || gameState.verificationStatus === 'verified'}
+                disabled={gameState.verificationStatus === 'pending' || gameState.verificationStatus === 'verified' || !canAffordVerification}
                 className="w-full max-w-sm p-3 rounded-xl font-bold glass-button disabled:opacity-50"
             >
                 {verificationButtonText()}
             </button>
+             {gameState.verificationStatus === 'rejected' && <p className="text-xs text-red-400">Ваш предыдущий запрос был отклонен.</p>}
         </div>
     );
 };

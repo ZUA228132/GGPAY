@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FloatingNumber, Boost, View, Player, TelegramUser, GameState, BoostConfig, BoostId, GlobalNotification, VerificationRequest, BoostType } from './types';
-import { TAPS_PER_CLICK_BASE, INITIAL_ENERGY, INITIAL_MAX_ENERGY, INITIAL_ENERGY_REGEN_RATE, BOT_OFFLINE_LIMIT_HOURS, ADMIN_USER_ID, BoostIconMap } from './constants';
+import { FloatingNumber, Boost, View, Player, TelegramUser, GameState, BoostConfig, BoostId, GlobalNotification, BoostType, CardData } from './types';
+import { TAPS_PER_CLICK_BASE, INITIAL_ENERGY, INITIAL_MAX_ENERGY, INITIAL_ENERGY_REGEN_RATE, BOT_OFFLINE_LIMIT_HOURS, ADMIN_USER_ID, BoostIconMap, MAX_CARDS, VERIFICATION_COST } from './constants';
 import { formatLargeNumber } from './utils';
 import { 
     getUserData, createUserData, saveUserData, performTransferTransaction, 
     fetchTopPlayers, getBoostsConfig, requestVerification, 
-    getLatestNotification, markNotificationAsSeen 
+    getLatestNotification, markNotificationAsSeen, issueNewCardToUser
 } from './firebase/service';
 import Coin from './components/Coin';
 import ProgressBar from './components/ProgressBar';
 import BoosterCard from './components/BoosterCard';
-import VirtualCard from './components/VirtualCard';
 import HistoryModal from './components/HistoryModal';
 import ProfileView from './components/ProfileView';
 import AdminView from './components/AdminView';
 import TransferAnimation from './components/TransferAnimation';
 import TopPlayersView from './components/TopPlayersView';
+import BankView from './components/BankView';
+import CardIssuanceAnimation from './components/CardIssuanceAnimation';
 
 declare global {
     interface Window {
@@ -23,16 +24,10 @@ declare global {
     }
 }
 
-// Custom hook for debouncing effects
 const useDebouncedEffect = (callback: () => void, deps: React.DependencyList, delay: number) => {
     useEffect(() => {
-        const handler = setTimeout(() => {
-            callback();
-        }, delay);
-
-        return () => {
-            clearTimeout(handler);
-        };
+        const handler = setTimeout(() => callback(), delay);
+        return () => clearTimeout(handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [...(deps || []), delay]);
 };
@@ -42,14 +37,14 @@ const HomeIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w
 const BoostsIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>);
 const TrophyIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 11l3-3m0 0l3 3m-3-3v8m0-13a9 9 0 110 18 9 9 0 010-18z" transform="scale(1.1) translate(-1, -1)" /><path strokeLinecap="round" strokeLinejoin="round" d="M5 21h14a2 2 0 002-2v-1a2 2 0 00-2-2H5a2 2 0 00-2 2v1a2 2 0 002 2z" /></svg>);
 const ProfileIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>);
-const CardIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>);
+const BankIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>);
 const AdminIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>);
 
 const BottomNav: React.FC<{ currentView: View; setCurrentView: (view: View) => void; isAdmin: boolean; }> = ({ currentView, setCurrentView, isAdmin }) => {
     const navItems = [
         { id: 'home', icon: HomeIcon, label: 'Главная' },
         { id: 'boosts', icon: BoostsIcon, label: 'Улучшения' },
-        { id: 'card', icon: CardIcon, label: 'Карта' },
+        { id: 'bank', icon: BankIcon, label: 'Банк' },
         { id: 'top', icon: TrophyIcon, label: 'Топ' },
         { id: 'profile', icon: ProfileIcon, label: 'Профиль' },
     ];
@@ -104,29 +99,23 @@ const App: React.FC = () => {
     const [leaderboardTab, setLeaderboardTab] = useState<'gg' | 'boosts'>('gg');
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [showTransferAnimation, setShowTransferAnimation] = useState(false);
+    const [showCardIssuanceAnimation, setShowCardIssuanceAnimation] = useState(false);
+    const [newlyIssuedCard, setNewlyIssuedCard] = useState<CardData | null>(null);
     const [globalNotification, setGlobalNotification] = useState<GlobalNotification | null>(null);
     
     const isAdmin = useMemo(() => telegramUser?.id === ADMIN_USER_ID, [telegramUser]);
+    const totalBalance = useMemo(() => gameState?.cards.reduce((sum, card) => sum + card.balance, 0) ?? 0, [gameState]);
 
-    // Derived states from GameState and BoostsConfig
     const boosts = useMemo((): Record<BoostId, Boost> => {
         const fullBoosts: Record<BoostId, Boost> = {} as any;
         boostsConfig.forEach(config => {
             const getCost = (level: number) => {
                 try {
                     return new Function('level', `return ${config.costFormula}`)(level);
-                } catch (e) {
-                    console.error("Error evaluating cost formula:", e);
-                    return Infinity;
-                }
+                } catch (e) { console.error("Error evaluating cost formula:", e); return Infinity; }
             };
             const IconComponent = BoostIconMap[config.iconName] || (() => null);
-            fullBoosts[config.id] = {
-                ...config,
-                level: gameState?.boosts[config.id]?.level ?? 0,
-                icon: <IconComponent />,
-                getCost
-            };
+            fullBoosts[config.id] = { ...config, level: gameState?.boosts[config.id]?.level ?? 0, icon: <IconComponent />, getCost };
         });
         return fullBoosts;
     }, [gameState, boostsConfig]);
@@ -139,24 +128,16 @@ const App: React.FC = () => {
         const initializeApp = async () => {
             try {
                 const tg = window.Telegram?.WebApp;
-
                 if (!tg || !tg.initDataUnsafe?.user?.id) {
-                    setError("Это приложение можно запустить только внутри Telegram.");
-                    setLoading(false);
-                    return;
+                    setError("Это приложение можно запустить только внутри Telegram."); setLoading(false); return;
                 }
                 
                 tg.expand();
                 const user = tg.initDataUnsafe.user;
                 const currentUser: TelegramUser = { id: user.id, firstName: user.first_name, lastName: user.last_name, username: user.username, photoUrl: user.photo_url };
-                
                 setTelegramUser(currentUser);
 
-                const [data, config, notification] = await Promise.all([
-                    getUserData(currentUser.id),
-                    getBoostsConfig(),
-                    getLatestNotification(localStorage.getItem(`seen_notification_${currentUser.id}`))
-                ]);
+                const [data, config, notification] = await Promise.all([ getUserData(currentUser.id), getBoostsConfig(), getLatestNotification(localStorage.getItem(`seen_notification_${currentUser.id}`)) ]);
                 setBoostsConfig(config);
 
                 if (notification) setGlobalNotification(notification);
@@ -166,12 +147,9 @@ const App: React.FC = () => {
                     loadedGameState = await createUserData(currentUser, config);
                 }
                  if (loadedGameState.isBanned) {
-                    setError("Ваш аккаунт был заблокирован.");
-                    setLoading(false);
-                    return;
+                    setError("Ваш аккаунт был заблокирован."); setLoading(false); return;
                 }
                 
-                // Offline calculations
                 const offlineTimeSec = Math.min((Date.now() - loadedGameState.lastSeen) / 1000, BOT_OFFLINE_LIMIT_HOURS * 3600);
                 const botLevel = loadedGameState.boosts[BoostType.AUTO_TAP_BOT]?.level || 0;
                 const botEarnings = botLevel > 0 ? offlineTimeSec * TAPS_PER_CLICK_BASE * botLevel : 0;
@@ -182,11 +160,12 @@ const App: React.FC = () => {
                 const currentMaxEnergy = INITIAL_MAX_ENERGY + (energyLimitLevel * 500);
                 const offlineEnergyGain = Math.floor(offlineTimeSec * currentEnergyRegenRate);
 
-                setGameState({
-                    ...loadedGameState,
-                    balance: loadedGameState.balance + botEarnings,
-                    energy: Math.min(loadedGameState.energy + offlineEnergyGain, currentMaxEnergy),
-                });
+                const updatedCards = [...loadedGameState.cards];
+                if (updatedCards.length > 0) {
+                    updatedCards[0].balance += botEarnings;
+                }
+
+                setGameState({ ...loadedGameState, cards: updatedCards, energy: Math.min(loadedGameState.energy + offlineEnergyGain, currentMaxEnergy) });
 
             } catch (err: any) {
                 console.error("Initialization failed:", err);
@@ -198,7 +177,6 @@ const App: React.FC = () => {
         initializeApp();
     }, []);
 
-    // Game loop for energy and printer
     useEffect(() => {
         if (!gameState || !boosts[BoostType.GG_PRINTER]) return;
         const regenInterval = setInterval(() => {
@@ -206,23 +184,18 @@ const App: React.FC = () => {
                 if (!prev) return prev;
                 const printerLevel = prev.boosts[BoostType.GG_PRINTER]?.level || 0;
                 const incomePerSecond = printerLevel > 0 ? printerLevel * 0.005 * ((prev.boosts[BoostType.MULTITAP]?.level || 0) + 1) : 0;
-                return {
-                    ...prev,
-                    energy: Math.min(maxEnergy, prev.energy + energyRegenRate),
-                    balance: prev.balance + incomePerSecond
-                };
+                const updatedCards = [...prev.cards];
+                if (updatedCards.length > 0) updatedCards[0].balance += incomePerSecond;
+                return { ...prev, energy: Math.min(maxEnergy, prev.energy + energyRegenRate), cards: updatedCards };
             });
         }, 1000);
         return () => clearInterval(regenInterval);
     }, [gameState, energyRegenRate, maxEnergy, boosts]);
     
-    // Save data logic
     const gameStateRef = useRef(gameState);
     useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
     useDebouncedEffect(() => {
-        if (gameStateRef.current && telegramUser) {
-            saveUserData(telegramUser.id, { ...gameStateRef.current, lastSeen: Date.now() });
-        }
+        if (gameStateRef.current && telegramUser) saveUserData(telegramUser.id, { ...gameStateRef.current, lastSeen: Date.now() });
     }, [gameState], 500);
     useEffect(() => {
         const handleVisibilityChange = () => {
@@ -234,7 +207,6 @@ const App: React.FC = () => {
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [telegramUser]);
     
-    // Fetch top players when view changes
     useEffect(() => {
         if (!telegramUser || currentView !== 'top') return;
         const fetch = async () => {
@@ -242,10 +214,8 @@ const App: React.FC = () => {
             try {
                 const players = await fetchTopPlayers(telegramUser.id, leaderboardTab);
                 setTopPlayers(players);
-            } catch (e) {
-                console.error("Failed to fetch top players:", e);
-                setError("Не удалось загрузить рейтинг. Проверьте правила Firebase (нужен .indexOn).");
-            } finally { setIsTopPlayersLoading(false); }
+            } catch (e) { console.error("Failed to fetch top players:", e); setError("Не удалось загрузить рейтинг. Проверьте правила Firebase (нужен .indexOn)."); } 
+            finally { setIsTopPlayersLoading(false); }
         };
         fetch();
     }, [telegramUser, leaderboardTab, currentView]); 
@@ -264,15 +234,15 @@ const App: React.FC = () => {
             const tapMultiplier = isCritical ? 10 : 1;
             const tapValue = tapsPerClick * tapMultiplier;
 
-            if (consumesEnergy) {
-                setGameState(prev => prev ? { ...prev, balance: prev.balance + tapValue, energy: prev.energy - energyCost } : prev);
-            } else {
-                setGameState(prev => prev ? { ...prev, balance: prev.balance + tapValue } : prev);
-            }
+            setGameState(prev => {
+                if (!prev) return prev;
+                const updatedCards = [...prev.cards];
+                if (updatedCards.length > 0) updatedCards[0].balance += tapValue;
+                const newEnergy = consumesEnergy ? prev.energy - energyCost : prev.energy;
+                return { ...prev, cards: updatedCards, energy: newEnergy };
+            });
 
-            const newFloatingNumber: FloatingNumber = {
-                id: Date.now() + Math.random(), value: `+${formatLargeNumber(tapValue)}`, x: x + (Math.random() - 0.5) * 30, y, isCritical,
-            };
+            const newFloatingNumber: FloatingNumber = { id: Date.now() + Math.random(), value: `+${formatLargeNumber(tapValue)}`, x: x + (Math.random() - 0.5) * 30, y, isCritical };
             setFloatingNumbers(prev => [...prev, newFloatingNumber]);
             setTimeout(() => setFloatingNumbers(current => current.filter(n => n.id !== newFloatingNumber.id)), 2000);
             try { window.Telegram.WebApp.HapticFeedback.impactOccurred('light'); } catch (e) { /* Ignore */ }
@@ -280,50 +250,85 @@ const App: React.FC = () => {
     }, [gameState, boosts, tapsPerClick]);
 
     const handleBuyBoost = useCallback((boostId: BoostId) => {
+        if (!gameState || !boosts[boostId]) return;
         const boost = boosts[boostId];
-        if (!boost || !gameState || boost.level >= boost.maxLevel) return;
+        if (boost.level >= boost.maxLevel) return;
         const cost = boost.getCost(boost.level);
-        if (gameState.balance >= cost) {
+        if (totalBalance >= cost) {
             setGameState(prev => {
                 if (!prev) return prev;
+                // Distribute cost across cards
+                let remainingCost = cost;
+                const updatedCards = [...prev.cards].map(card => {
+                    if (remainingCost > 0) {
+                        const deduction = Math.min(card.balance, remainingCost);
+                        card.balance -= deduction;
+                        remainingCost -= deduction;
+                    }
+                    return card;
+                });
                 const newBoosts = { ...prev.boosts, [boostId]: { level: boost.level + 1 } };
-                return { ...prev, balance: prev.balance - cost, boosts: newBoosts };
+                return { ...prev, boosts: newBoosts, cards: updatedCards };
             });
         }
-    }, [gameState, boosts]);
+    }, [gameState, boosts, totalBalance]);
 
-    const handleTransfer = async (recipientId: number, amount: number) => {
-        if (!telegramUser || !gameState || gameState.balance < amount || amount <= 0) {
+    const handleTransfer = async (senderCard: CardData, recipientCardNumber: string, amount: number) => {
+        if (!telegramUser || !gameState || senderCard.balance < amount || amount <= 0) {
             return { success: false, message: 'Недостаточно средств или неверные данные.' };
         }
         try {
-            const result = await performTransferTransaction(telegramUser.id, recipientId, amount);
+            const result = await performTransferTransaction(telegramUser.id, senderCard.cardNumber, recipientCardNumber, amount);
             setGameState(prev => {
                 if (!prev) return prev;
+                const updatedCards = prev.cards.map(c => c.id === senderCard.id ? { ...c, balance: c.balance - amount } : c);
                 const newTransactions = [result.newTransaction, ...(prev.transactions || [])];
-                return { ...prev, balance: prev.balance - amount, transactions: newTransactions };
+                return { ...prev, cards: updatedCards, transactions: newTransactions };
             });
             setShowTransferAnimation(true);
             setTimeout(() => setShowTransferAnimation(false), 2500);
-            return { success: true, message: `Перевод на ${amount.toFixed(4)} GG выполнен!` };
+            return { success: true, message: `Перевод выполнен!` };
         } catch (error: any) {
              return { success: false, message: error.message || 'Ошибка транзакции' };
         }
     };
 
     const handleVerificationRequest = async () => {
-        if (!telegramUser || !gameState || gameState.verificationStatus === 'pending') return;
+        if (!telegramUser || !gameState || gameState.verificationStatus === 'pending' || gameState.verificationStatus === 'verified') return;
+        if (totalBalance < VERIFICATION_COST) { alert(`Нужно ${VERIFICATION_COST} GG для запроса.`); return; }
         try {
             await requestVerification(telegramUser.id, `${telegramUser.firstName} ${telegramUser.lastName}`);
-            setGameState(prev => prev ? { ...prev, verificationStatus: 'pending' } : prev);
-        } catch (e) {
-            console.error(e);
-        }
+            setGameState(prev => {
+                if (!prev) return prev;
+                let remainingCost = VERIFICATION_COST;
+                const updatedCards = prev.cards.map(card => {
+                    if(remainingCost > 0) {
+                        const deduction = Math.min(card.balance, remainingCost);
+                        card.balance -= deduction;
+                        remainingCost -= deduction;
+                    }
+                    return card;
+                });
+                return { ...prev, verificationStatus: 'pending', cards: updatedCards };
+            });
+        } catch (e) { console.error(e); }
     };
-    
+
+    const handleIssueNewCard = async () => {
+        if (!telegramUser || !gameState || gameState.cards.length >= MAX_CARDS) return;
+        try {
+            const newCard = await issueNewCardToUser(telegramUser.id);
+            setNewlyIssuedCard(newCard);
+            setShowCardIssuanceAnimation(true);
+            setGameState(prev => prev ? { ...prev, cards: [...prev.cards, newCard] } : prev);
+        } catch (e) { console.error("Failed to issue new card:", e); }
+    };
+
     if (loading) return <div className="h-screen w-screen flex items-center justify-center"><div className="text-2xl font-orbitron">Загрузка GG PAY...</div></div>;
     if (error) return <div className="h-screen w-screen flex items-center justify-center text-center p-4"><div><h2 className="text-2xl font-orbitron text-red-500">Ошибка</h2><p className="text-[var(--text-muted)] mt-2">{error}</p></div></div>;
     if (!gameState) return <div className="h-screen w-screen flex items-center justify-center text-center p-4"><div><h2 className="text-2xl font-orbitron text-red-500">Не удалось загрузить данные</h2><p className="text-[var(--text-muted)] mt-2">Пожалуйста, попробуйте перезапустить приложение.</p></div></div>;
+
+    const mainCard = gameState.cards[0];
 
     return (
         <div className="h-screen bg-transparent flex flex-col overflow-hidden font-sans">
@@ -332,14 +337,17 @@ const App: React.FC = () => {
                  if (globalNotification && telegramUser) markNotificationAsSeen(telegramUser.id, globalNotification.id);
                  setGlobalNotification(null);
             }} />
-            {showTransferAnimation && gameState.cardData && telegramUser && <TransferAnimation cardData={gameState.cardData} user={telegramUser} />}
+            {showTransferAnimation && mainCard && telegramUser && <TransferAnimation cardData={mainCard} user={telegramUser} />}
+            {showCardIssuanceAnimation && newlyIssuedCard && (
+                <CardIssuanceAnimation cardData={newlyIssuedCard} onAnimationEnd={() => setShowCardIssuanceAnimation(false)} />
+            )}
             <HistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} transactions={gameState.transactions} />
 
-            <main className="flex-grow px-4 pb-2 pt-4 flex flex-col overflow-y-auto">
+            <main className="flex-grow px-4 pb-2 pt-12 flex flex-col overflow-y-auto">
                 {currentView === 'home' && (
                     <div className="flex flex-col items-center justify-between h-full space-y-4 flex-grow">
                         <div className="text-center z-10">
-                             <h1 className="font-orbitron text-5xl font-black tracking-tight text-white">{formatLargeNumber(gameState.balance)}<span className="text-4xl font-bold text-[var(--primary-accent)] text-glow-primary"> GG</span></h1>
+                             <h1 className="font-orbitron text-5xl font-black tracking-tight text-white">{formatLargeNumber(totalBalance)}<span className="text-4xl font-bold text-[var(--primary-accent)] text-glow-primary"> GG</span></h1>
                         </div>
                         <div className="relative w-full flex-grow flex items-center justify-center"><Coin onTap={handleTap} floatingNumbers={floatingNumbers} /></div>
                         <div className="w-full max-w-md mx-auto z-10 space-y-2">
@@ -352,17 +360,17 @@ const App: React.FC = () => {
                     <div className="h-full flex flex-col">
                         <div className="text-center mb-6"><h2 className="text-3xl font-bold text-glow-primary font-orbitron">Улучшения</h2></div>
                         <div className="flex-grow overflow-y-auto space-y-4 pr-2">
-                            {Object.values(boosts).map(boost => <BoosterCard key={boost.id} boost={boost} balance={gameState.balance} onBuy={handleBuyBoost} />)}
+                            {Object.values(boosts).map(boost => <BoosterCard key={boost.id} boost={boost} balance={totalBalance} onBuy={handleBuyBoost} />)}
                         </div>
                     </div>
                 )}
-                {currentView === 'card' && <VirtualCard cardData={gameState.cardData} user={telegramUser} balance={gameState.balance} onTransfer={handleTransfer} />}
+                {currentView === 'bank' && <BankView user={telegramUser} cards={gameState.cards} onTransfer={handleTransfer} onIssueCard={handleIssueNewCard} />}
                 {currentView === 'top' && <TopPlayersView players={topPlayers} leaderboardTab={leaderboardTab} setLeaderboardTab={setLeaderboardTab} isLoading={isTopPlayersLoading} />}
-                {currentView === 'profile' && <ProfileView user={{...telegramUser, isVerified: gameState.isVerified}} gameState={gameState} onShowHistory={() => setIsHistoryModalOpen(true)} onVerificationRequest={handleVerificationRequest} />}
+                {currentView === 'profile' && <ProfileView user={{...telegramUser, isVerified: gameState.isVerified}} gameState={gameState} totalBalance={totalBalance} onShowHistory={() => setIsHistoryModalOpen(true)} onVerificationRequest={handleVerificationRequest} />}
                 {currentView === 'admin' && isAdmin && <AdminView />}
             </main>
             
-            <BottomNav currentView={currentView} setCurrentView={setCurrentView} isAdmin={isAdmin} />
+            <div className="w-full flex-shrink-0 pb-8"><BottomNav currentView={currentView} setCurrentView={setCurrentView} isAdmin={isAdmin} /></div>
         </div>
     );
 };

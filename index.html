@@ -106,6 +106,25 @@
         vertical-align: text-top;
       }
 
+      /* Card Carousel */
+      .card-carousel {
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+      }
+      .card-carousel > * {
+        scroll-snap-align: center;
+        flex-shrink: 0;
+      }
+
+      /* Card Issuance Animation */
+      .card-issuance-animation {
+        animation: zoomInFadeIn 0.5s ease-out forwards;
+      }
+      @keyframes zoomInFadeIn {
+        from { transform: scale(0.5) translateY(100px); opacity: 0; }
+        to { transform: scale(1) translateY(0); opacity: 1; }
+      }
+
       /* Transfer Animation */
       .transfer-animation-overlay {
         animation: fadeIn 0.3s ease-out forwards;

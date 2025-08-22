@@ -25,8 +25,8 @@ export interface BoostConfig {
   name: string;
   description: string;
   maxLevel: number;
-  iconName: string; // To allow dynamic icon lookup
-  costFormula: string; // Stored as a string formula like '10 * 2.5 ** level'
+  iconName: string; 
+  costFormula: string;
 }
 
 export interface Boost extends Omit<BoostConfig, 'costFormula'> {
@@ -34,7 +34,6 @@ export interface Boost extends Omit<BoostConfig, 'costFormula'> {
     icon: ReactNode;
     getCost: (level: number) => number;
 }
-
 
 export interface Player {
     id: number;
@@ -59,24 +58,31 @@ export interface Transaction {
     id: string;
     type: 'sent' | 'received';
     amount: number;
-    counterpartyId: number;
+    senderCardNumber: string;
+    recipientCardNumber: string;
+    counterpartyId?: number; // Kept for simplicity in display
+    counterpartyName?: string;
     timestamp: number;
 }
 
 export interface CardData {
+    id: string;
     cardNumber: string;
+    cardName: string;
     expiryDate: string;
+    cvv: string;
+    balance: number;
+    isRevealed?: boolean;
 }
 
 export type VerificationStatus = 'none' | 'pending' | 'verified' | 'rejected';
 
 export interface GameState {
-    balance: number;
     energy: number;
     boosts: Record<BoostId, { level: number }>;
     lastSeen: number;
     transactions: Transaction[];
-    cardData: CardData;
+    cards: CardData[];
     isBanned: boolean;
     isVerified: boolean;
     verificationStatus: VerificationStatus;
@@ -95,4 +101,4 @@ export interface GlobalNotification {
 }
 
 
-export type View = 'home' | 'boosts' | 'top' | 'profile' | 'card' | 'admin';
+export type View = 'home' | 'boosts' | 'top' | 'profile' | 'bank' | 'admin';
